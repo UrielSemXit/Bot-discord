@@ -1,0 +1,890 @@
+const {
+  Client,
+  GatewayIntentBits,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  EmbedBuilder,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  StringSelectMenuBuilder,
+  ChannelType,
+  PermissionsBitField,
+} = require("discord.js");
+
+const fs = require("fs");
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildPresences,
+  ],
+});
+
+const TOKEN = "MTQ4MjAzMjExOTA4ODk0MzIwNg.GqDlxy.EJ_f5tK_vs1zMJmKmus7rTGUmKnN0ReECtTg-s";
+
+// ─────────────────────────────────────────────
+// CONFIG
+// ─────────────────────────────────────────────
+const config = {
+  cargoADM: "1479280404082196691",
+  logoURL:
+    "https://cdn.discordapp.com/attachments/1329181663824969779/1481061078392766484/image.png?ex=69bb2b9d&is=69b9da1d&hm=475f3947ce8b5172e0daa8d17894154796a3a5abbcfa9b464576a1705f5935b5&",
+};
+
+// Blacklist
+const SUPORTE_ID = "1482062842642301120";
+const BLACKLIST_ROLE_ID = "1482385668758831165";
+const PLAYER_ROLE_ID = "1479281099053203607";
+
+// Ticket
+const TICKET_CATEGORIA = "1478897090800255230";
+
+// Rage queue / match
+const RAGE_CATEGORIA = "1481082156037050469";
+const LOGO =
+  "https://cdn.discordapp.com/attachments/1329181663824969779/1481061078392766484/image.png";
+
+const valores = [
+  "100,00","50,00","40,00","30,00","20,00","10,00",
+  "7,00","5,00","3,00","2,00","1,00","0,75","0,50",
+];
+
+// ─────────────────────────────────────────────
+// PERSISTENCE
+// ─────────────────────────────────────────────
+let blacklist = {};
+if (fs.existsSync("./blacklist.json")) {
+  blacklist = JSON.parse(fs.readFileSync("./blacklist.json"));
+}
+function salvarBlacklist() {
+  fs.writeFileSync("./blacklist.json", JSON.stringify(blacklist, null, 2));
+}
+
+let jogadoresData = {};
+if (fs.existsSync("./dados.json")) {
+  jogadoresData = JSON.parse(fs.readFileSync("./dados.json"));
+}
+function salvarDados() {
+  fs.writeFileSync("./dados.json", JSON.stringify(jogadoresData, null, 2));
+}
+
+// ─────────────────────────────────────────────
+// RAGE QUEUE STATE
+// ─────────────────────────────────────────────
+let filas = {};
+let partidas = {};
+let pixAdmins = {};
+
+// ─────────────────────────────────────────────
+// HELPERS
+// ─────────────────────────────────────────────
+const isAdminMember = (member, guild) => {
+  if (!member) return false;
+  if (member.id === guild.ownerId) return true;
+  return member.permissions.has(PermissionsBitField.Flags.Administrator);
+};
+
+function criarJogador(id) {
+  if (!jogadoresData[id]) {
+    jogadoresData[id] = {
+      vitorias: 0,
+      derrotas: 0,
+      sequencia: 0,
+      partidas: 0,
+      coins: 0,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────
+// READY
+// ─────────────────────────────────────────────
+client.once("ready", () => {
+  console.log(`✅ Bot ligado como ${client.user.tag}`);
+});
+
+// ─────────────────────────────────────────────
+// MESSAGE CREATE
+// ─────────────────────────────────────────────
+client.on("messageCreate", async (message) => {
+  if (message.author.bot) return;
+
+  // ── !ID SENHA (sala criada) ──
+  if (message.content.startsWith("!")) {
+    if (
+      message.member.roles.cache.has(config.cargoADM) &&
+      isAdminMember(message.member, message.guild)
+    ) {
+      message.delete().catch(() => {});
+    }
+
+    const args = message.content.slice(1).split(" ");
+    const id = args[0];
+    const senha = args[1];
+
+    if (
+      id &&
+      senha &&
+      !isNaN(id) &&
+      message.member.roles.cache.has(config.cargoADM) &&
+      !["ticket","painelblacklist","painel","v","d","rage","setpix"].includes(id.toLowerCase())
+    ) {
+      const embed = new EmbedBuilder()
+        .setTitle("🔥 SALA CRIADA")
+        .setThumbnail(config.logoURL)
+        .addFields(
+          { name: "🆔 ID DA SALA", value: `\`${id}\`` },
+          { name: "🔐 SENHA", value: `\`${senha}\`` }
+        )
+        .setColor("#ff0000")
+        .setFooter({ text: message.guild.name })
+        .setTimestamp();
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`id_${id}`)
+          .setLabel("📋 Copiar ID")
+          .setStyle(ButtonStyle.Primary),
+        new ButtonBuilder()
+          .setCustomId(`senha_${senha}`)
+          .setLabel("🔑 Copiar Senha")
+          .setStyle(ButtonStyle.Success)
+      );
+
+      return message.channel.send({ embeds: [embed], components: [row] });
+    }
+  }
+
+  // ── !painelblacklist ──
+  if (message.content === "!painelblacklist") {
+    const embed = new EmbedBuilder()
+      .setTitle("🚫 Painel de Blacklist")
+      .setDescription(
+        "Bem vindo ao quadro de blacklist Rage. Aqui você verifica pelo id do usuário se ele está ou não na blacklist.\n\nClique no botão abaixo para pesquisar."
+      )
+      .setColor("Red");
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("verificar_id")
+        .setLabel("🔎 Verificar ID")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("add_blacklist")
+        .setLabel("🚫 Adicionar Blacklist")
+        .setStyle(ButtonStyle.Danger),
+      new ButtonBuilder()
+        .setCustomId("remover_blacklist")
+        .setLabel("✅ Remover Blacklist")
+        .setStyle(ButtonStyle.Success)
+    );
+
+    return message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // ── !ticket ──
+  if (message.content === "!ticket") {
+    const embed = new EmbedBuilder()
+      .setTitle("🎟 Centro de Atendimento")
+      .setDescription("Selecione uma opção abaixo para abrir um ticket.")
+      .setColor("Red")
+      .setImage(
+        "https://cdn.discordapp.com/attachments/1329181663824969779/1482872836069527815/ChatGPT_Image_15_de_mar._de_2026_19_45_05.png?ex=69b9d9f2&is=69b88872&hm=ac7b56f5c15360aaaab762f2a9dc9984a3c9fceab57687234bed5668aad19611&"
+      );
+
+    const menu = new ActionRowBuilder().addComponents(
+      new StringSelectMenuBuilder()
+        .setCustomId("ticket_menu")
+        .setPlaceholder("Escolha uma opção")
+        .addOptions([
+          { label: "Suporte", description: "Abrir ticket de suporte", value: "suporte" },
+          { label: "Reembolso", description: "Solicitar reembolso", value: "reembolso" },
+          { label: "Mediador", description: "Chamar mediador", value: "mediador" },
+        ])
+    );
+
+    return message.channel.send({ embeds: [embed], components: [menu] });
+  }
+
+  // ── !painel (coins/ranking) ──
+  if (message.content === "!painel") {
+    const embed = new EmbedBuilder()
+      .setTitle("⚡ Seus Coins ⚡")
+      .setDescription("Veja suas informações e ranking!\n\nClique em um botão abaixo.")
+      .setColor("Red")
+      .setThumbnail(LOGO);
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId("perfil")
+        .setLabel("👤 Ver perfil")
+        .setStyle(ButtonStyle.Primary),
+      new ButtonBuilder()
+        .setCustomId("ranking")
+        .setLabel("🏆 Ver ranking")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+    return message.channel.send({ embeds: [embed], components: [row] });
+  }
+
+  // ── !v @user (vitória) ──
+  if (message.content.startsWith("!v ")) {
+    let membro = message.mentions.users.first();
+    if (!membro) return message.reply("Marque o jogador.");
+
+    criarJogador(membro.id);
+    jogadoresData[membro.id].vitorias += 1;
+    jogadoresData[membro.id].partidas += 1;
+    jogadoresData[membro.id].sequencia += 1;
+    jogadoresData[membro.id].coins += 10;
+    salvarDados();
+
+    message.channel.send(`🏆 ${membro.username} ganhou uma vitória! (+10 coins)`);
+
+    const data = jogadoresData[membro.id];
+    const perfilEmbed = new EmbedBuilder()
+      .setTitle(`👤 Perfil de ${membro.username}`)
+      .setDescription(
+        `Vitórias: ${data.vitorias} - Derrotas: ${data.derrotas}\n` +
+        `Consecutivas: ${data.sequencia} - Total: ${data.partidas}\n\n` +
+        `💰 Coins: ${data.coins}`
+      )
+      .setColor("Red")
+      .setThumbnail(membro.displayAvatarURL({ dynamic: true }));
+
+    membro.send({ embeds: [perfilEmbed] }).catch(() => {});
+
+    const ranking = Object.entries(jogadoresData)
+      .sort((a, b) => b[1].vitorias - a[1].vitorias);
+    const pos = ranking.findIndex((p) => p[0] === membro.id) + 1;
+
+    const rankEmbed = new EmbedBuilder()
+      .setTitle("🏆 Seu Ranking")
+      .setDescription(
+        `Você está em **${pos}º lugar**\nVitórias: ${data.vitorias}`
+      )
+      .setColor("Red");
+
+    membro.send({ embeds: [rankEmbed] }).catch(() => {});
+
+    return;
+  }
+
+  // ── !d @user (derrota) ──
+  if (message.content.startsWith("!d ")) {
+    let membro = message.mentions.users.first();
+    if (!membro) return message.reply("Marque o jogador.");
+
+    criarJogador(membro.id);
+    jogadoresData[membro.id].derrotas += 1;
+    jogadoresData[membro.id].partidas += 1;
+    jogadoresData[membro.id].sequencia = 0;
+    jogadoresData[membro.id].coins += 2;
+    salvarDados();
+
+    return message.channel.send(`❌ ${membro.username} recebeu uma derrota (+2 coins)`);
+  }
+
+  // ── !setpix ──
+  if (message.content.startsWith("!setpix")) {
+    if (!isAdminMember(message.member, message.guild)) {
+      return message.author.send("❌ Apenas administradores podem usar o !setpix.").catch(() => {});
+    }
+    const args = message.content.split(" ");
+    if (args.length < 3)
+      return message.author.send("❌ Use: !setpix CHAVE QR_CODE").catch(() => {});
+
+    pixAdmins[message.author.id] = { chave: args[1], qr: args.slice(2).join(" ") };
+    return message.author.send("✅ Seu PIX foi definido com sucesso. Agora você pode assumir filas.").catch(() => {});
+  }
+
+  // ── !v inside partida channel (ADM declarar vencedor) ──
+  if (message.content.startsWith("!v")) {
+    const partida = partidas[message.channel.id];
+    if (partida) {
+      if (!isAdminMember(message.member, message.guild)) {
+        return message.reply("❌ Apenas ADM.");
+      }
+      const user = message.mentions.users.first();
+      if (!user) return message.reply("Marque o vencedor.");
+
+      const embed = new EmbedBuilder()
+        .setColor("#FFD700")
+        .setTitle("🏆 RESULTADO DA PARTIDA")
+        .setThumbnail(LOGO)
+        .addFields(
+          { name: "🎮 Modo", value: partida.modoNome },
+          { name: "💰 Valor", value: `R$ ${partida.valor}` },
+          { name: "👥 Jogadores", value: `<@${partida.p1}> vs <@${partida.p2}>` },
+          { name: "🥇 Vencedor", value: `${user}` }
+        );
+      return message.channel.send({ embeds: [embed] });
+    }
+  }
+
+  // ── !rage ──
+  if (message.content.startsWith("!rage")) {
+    const args = message.content.split(" ");
+    const modoComando = args[1];
+    let modo = null, modoNome = "";
+
+    if (modoComando === "1v1_mobile")  { modo = "1x1";       modoNome = "1x1 Mobile"; }
+    if (modoComando === "2v2_mobile")  { modo = "2x2";       modoNome = "2x2 Mobile"; }
+    if (modoComando === "3v3_mobile")  { modo = "3x3";       modoNome = "3x3 Mobile"; }
+    if (modoComando === "4v4_mobile")  { modo = "4x4";       modoNome = "4x4 Mobile"; }
+    if (modoComando === "2v2_misto")   { modo = "2x2_misto"; modoNome = "2x2 Misto"; }
+    if (modoComando === "3v3_misto")   { modo = "3x3_misto"; modoNome = "3x3 Misto"; }
+    if (modoComando === "4v4_misto")   { modo = "4x4_misto"; modoNome = "4x4 Misto"; }
+    if (modoComando === "1v1_emu")     { modo = "1x1_emu";   modoNome = "1x1 Emulador"; }
+    if (modoComando === "2v2_emu")     { modo = "2x2_emu";   modoNome = "2x2 Emulador"; }
+    if (modoComando === "3v3_emu")     { modo = "3x3_emu";   modoNome = "3x3 Emulador"; }
+    if (modoComando === "4v4_emu")     { modo = "4x4_emu";   modoNome = "4x4 Emulador"; }
+
+    if (!modo)
+      return message.reply(
+        "Use: !rage 1v1_mobile | 2v2_mobile | 3v3_mobile | 4v4_mobile | 2v2_misto | 3v3_misto | 4v4_misto | 1v1_emu | 2v2_emu | 3v3_emu | 4v4_emu"
+      );
+
+    for (const valor of valores) {
+      if (!filas[modo]) filas[modo] = {};
+      filas[modo][valor] = { normal: [], infinito: [], emu1: [], emu2: [], emu3: [] };
+
+      const embed = new EmbedBuilder()
+        .setColor("#ff0000")
+        .setTitle("🐺 JOGUE NA ORG RAGE")
+        .setThumbnail(LOGO)
+        .setDescription(`💎 **${modoNome} | 👑 BORA LUCRAR??**`)
+        .addFields(
+          { name: "🎮 Modo:", value: `${modoNome}`, inline: false },
+          { name: "💰 Valor:", value: `R$${valor}`, inline: false },
+          { name: "👤 Jogadores:", value: "Ninguém", inline: false }
+        )
+        .setImage(
+          "https://cdn.discordapp.com/attachments/1329181663824969779/1482872836069527815/ChatGPT_Image_15_de_mar._de_2026_19_45_05.png?ex=69b88872&is=69b736f2&hm=6e9382d0747453dcab364fd0261aeb045e6b546f8e3b9e553c90b0f25a9b39c3&"
+        );
+
+      let row;
+
+      if (modo === "1x1" || modo === "1x1_emu") {
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`normal_${modo}_${valor}`).setLabel("Gel Normal").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`infinito_${modo}_${valor}`).setLabel("Gel Infinito").setStyle(ButtonStyle.Secondary),
+          new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+        );
+      } else if (modo === "2x2_misto") {
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+        );
+      } else if (modo === "3x3_misto") {
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`emu2_${modo}_${valor}`).setLabel("🖥️ 2 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+        );
+      } else if (modo === "4x4_misto") {
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`emu2_${modo}_${valor}`).setLabel("🖥️ 2 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`emu3_${modo}_${valor}`).setLabel("🖥️ 3 EMU").setStyle(ButtonStyle.Primary),
+          new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+        );
+      } else {
+        row = new ActionRowBuilder().addComponents(
+          new ButtonBuilder().setCustomId(`entrar_${modo}_${valor}`).setLabel("Entrar na fila").setStyle(ButtonStyle.Success),
+          new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+        );
+      }
+
+      await message.channel.send({ embeds: [embed], components: [row] });
+    }
+  }
+});
+
+// ─────────────────────────────────────────────
+// INTERACTION CREATE
+// ─────────────────────────────────────────────
+client.on("interactionCreate", async (interaction) => {
+
+  // ══ STRING SELECT MENU — ticket ══
+  if (interaction.isStringSelectMenu()) {
+    if (interaction.customId === "ticket_menu") {
+      const tipo = interaction.values[0];
+      const user = interaction.user;
+
+      const canal = await interaction.guild.channels.create({
+        name: `${tipo}-${user.username}`,
+        parent: TICKET_CATEGORIA,
+        permissionOverwrites: [
+          { id: interaction.guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+          { id: SUPORTE_ID, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+        ],
+      });
+
+      const embed = new EmbedBuilder()
+        .setTitle("🎟 Ticket Aberto")
+        .setDescription(`👤 Usuário: ${user}\n\n⏳ **Aguardando um membro do suporte assumir este atendimento...**`)
+        .setColor("Yellow");
+
+      const botoes = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("assumir_ticket").setLabel("Assumir Ticket").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId("fechar_ticket").setLabel("Fechar Ticket").setStyle(ButtonStyle.Danger)
+      );
+
+      canal.send({ embeds: [embed], components: [botoes] });
+      await interaction.reply({ content: `✅ Ticket criado: ${canal}`, ephemeral: true });
+
+      const novoMenu = new ActionRowBuilder().addComponents(
+        new StringSelectMenuBuilder()
+          .setCustomId("ticket_menu")
+          .setPlaceholder("Escolha uma opção")
+          .addOptions([
+            { label: "Suporte", description: "Abrir ticket de suporte", value: "suporte" },
+            { label: "Reembolso", description: "Solicitar reembolso", value: "reembolso" },
+            { label: "Mediador", description: "Chamar mediador", value: "mediador" },
+          ])
+      );
+      interaction.message.edit({ components: [novoMenu] });
+    }
+    return;
+  }
+
+  // ══ MODAL SUBMIT ══
+  if (interaction.isModalSubmit()) {
+    if (interaction.customId === "modal_verificar") {
+      const id = interaction.fields.getTextInputValue("id_usuario");
+      if (blacklist[id]) {
+        return interaction.reply({ content: `🚫 Usuário está na blacklist.\nMotivo: ${blacklist[id]}`, ephemeral: true });
+      } else {
+        return interaction.reply({ content: "✅ Usuário NÃO está na blacklist.", ephemeral: true });
+      }
+    }
+
+    if (interaction.customId === "modal_add") {
+      const id = interaction.fields.getTextInputValue("id_blacklist");
+      const motivo = interaction.fields.getTextInputValue("motivo_blacklist");
+      blacklist[id] = motivo;
+      salvarBlacklist();
+      try {
+        const membro = await interaction.guild.members.fetch(id);
+        const cargosRemoviveis = membro.roles.cache.filter((r) => r.editable && r.id !== BLACKLIST_ROLE_ID).map((r) => r.id);
+        await membro.roles.remove(cargosRemoviveis);
+        await membro.roles.add(BLACKLIST_ROLE_ID);
+      } catch (err) { console.log("Usuário não está no servidor."); }
+      return interaction.reply({ content: `🚫 Usuário ${id} adicionado na blacklist.`, ephemeral: true });
+    }
+
+    if (interaction.customId === "modal_remover") {
+      const id = interaction.fields.getTextInputValue("id_remover");
+      if (!blacklist[id]) {
+        return interaction.reply({ content: "❌ Esse usuário não está na blacklist.", ephemeral: true });
+      }
+      delete blacklist[id];
+      salvarBlacklist();
+      try {
+        const membro = await interaction.guild.members.fetch(id);
+        await membro.roles.remove(BLACKLIST_ROLE_ID);
+        await membro.roles.add(PLAYER_ROLE_ID);
+      } catch (err) { console.log("Usuário não encontrado."); }
+      return interaction.reply({ content: `✅ Usuário ${id} removido da blacklist e recebeu o cargo de Player.`, ephemeral: true });
+    }
+    return;
+  }
+
+  // ══ BUTTONS ══
+  if (!interaction.isButton()) return;
+
+  const id = interaction.customId;
+
+  // ── Copiar ID / Senha ──
+  if (id.startsWith("id_")) {
+    return interaction.reply({ content: `🆔 ID: \`${id.split("_")[1]}\``, ephemeral: true });
+  }
+  if (id.startsWith("senha_")) {
+    return interaction.reply({ content: `🔐 Senha: \`${id.split("_")[1]}\``, ephemeral: true });
+  }
+
+  // ── Blacklist ──
+  if (id === "verificar_id") {
+    const modal = new ModalBuilder().setCustomId("modal_verificar").setTitle("Verificar Blacklist");
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId("id_usuario").setLabel("Digite o ID do usuário").setStyle(TextInputStyle.Short)
+    ));
+    return interaction.showModal(modal);
+  }
+
+  if (id === "add_blacklist") {
+    if (!interaction.member.roles.cache.has(SUPORTE_ID)) {
+      return interaction.reply({ content: "❌ Apenas o **Suporte** pode adicionar blacklist.", ephemeral: true });
+    }
+    const modal = new ModalBuilder().setCustomId("modal_add").setTitle("Adicionar Blacklist");
+    modal.addComponents(
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("id_blacklist").setLabel("ID do usuário").setStyle(TextInputStyle.Short)),
+      new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId("motivo_blacklist").setLabel("Motivo").setStyle(TextInputStyle.Short))
+    );
+    return interaction.showModal(modal);
+  }
+
+  if (id === "remover_blacklist") {
+    if (!interaction.member.roles.cache.has(SUPORTE_ID)) {
+      return interaction.reply({ content: "❌ Apenas o **Suporte** pode remover blacklist.", ephemeral: true });
+    }
+    const modal = new ModalBuilder().setCustomId("modal_remover").setTitle("Remover Blacklist");
+    modal.addComponents(new ActionRowBuilder().addComponents(
+      new TextInputBuilder().setCustomId("id_remover").setLabel("ID do usuário").setStyle(TextInputStyle.Short)
+    ));
+    return interaction.showModal(modal);
+  }
+
+  // ── Ticket ──
+  if (id === "assumir_ticket") {
+    if (!interaction.member.roles.cache.has(SUPORTE_ID)) {
+      return interaction.reply({ content: "❌ Apenas membros do suporte podem assumir tickets.", ephemeral: true });
+    }
+    return interaction.reply(`👨‍💼 Atendimento assumido por ${interaction.user}`);
+  }
+
+  if (id === "fechar_ticket") {
+    const embed = new EmbedBuilder()
+      .setTitle("🔒 Ticket Encerrando")
+      .setDescription("Este ticket será fechado em **5 segundos**.")
+      .setColor("Red")
+      .setFooter({ text: `Fechado por ${interaction.user.username}` });
+    await interaction.update({ embeds: [embed], components: [] });
+    setTimeout(() => { interaction.channel.delete(); }, 5000);
+    return;
+  }
+
+  // ── Coins — Perfil (com avatar) ──
+  if (id === "perfil") {
+    const user = interaction.user;
+    criarJogador(user.id);
+    const data = jogadoresData[user.id];
+    const embed = new EmbedBuilder()
+      .setTitle(`📊 Perfil de ${user.username}`)
+      .setDescription(
+        `Vitórias: ${data.vitorias} - Derrotas: ${data.derrotas}\n` +
+        `Consecutivas: ${data.sequencia} - Total: ${data.partidas}\n\n` +
+        `💰 Coins: ${data.coins}`
+      )
+      .setColor("Red")
+      .setThumbnail(user.displayAvatarURL({ dynamic: true }));
+    return interaction.reply({ embeds: [embed], ephemeral: true });
+  }
+
+  // ── Coins — Ranking ──
+  if (id === "ranking") {
+    const rankingData = Object.entries(jogadoresData)
+      .sort((a, b) => b[1].vitorias - a[1].vitorias)
+      .slice(0, 10);
+    const medalhas = ["🥇", "🥈", "🥉"];
+    let texto = "";
+    rankingData.forEach((p, i) => {
+      texto += `${medalhas[i] || `${i + 1}°`} <@${p[0]}> - ${p[1].vitorias} vitórias\n`;
+    });
+    if (!texto) texto = "Nenhum jogador ainda.";
+    const embed = new EmbedBuilder()
+      .setTitle("🏆 Ranking de Vitórias")
+      .setDescription(texto)
+      .setColor("Red")
+      .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }));
+    return interaction.reply({ embeds: [embed], ephemeral: true });
+  }
+
+  // ══ RAGE — partida channel ══
+  if (partidas[interaction.channel.id]) {
+    const partida = partidas[interaction.channel.id];
+    const isAdmin = isAdminMember(interaction.member, interaction.guild);
+    const isJogador = interaction.user.id === partida.p1 || interaction.user.id === partida.p2;
+
+    const buildPainelEmbed = (status) =>
+      new EmbedBuilder()
+        .setColor(status === "cancelada" ? "#ff0000" : "#ff6600")
+        .setTitle(`🔥 ${partida.modoNome} — R$ ${partida.valor}`)
+        .setThumbnail(LOGO)
+        .addFields(
+          { name: "⚔️ Confronto", value: `<@${partida.p1}>\n<@${partida.p2}>`, inline: false },
+          { name: "💰 Valor", value: `R$ ${partida.valor}`, inline: true },
+          { name: "🎮 Modo", value: partida.modoNome, inline: true }
+        )
+        .setFooter({ text: "Org Rage • Sistema de partidas" });
+
+    const buildBotoes = () =>
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("confirmar").setLabel("✅ Confirmar").setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId("cancelar").setLabel("❌ Cancelar").setStyle(ButtonStyle.Danger)
+      );
+
+    if (id === "confirmar") {
+      if (!isJogador) return interaction.reply({ content: "❌ Apenas os jogadores da partida podem confirmar.", ephemeral: true });
+      if (partida.confirmados.includes(interaction.user.id)) return interaction.reply({ content: "⚠️ Você já confirmou.", ephemeral: true });
+
+      partida.confirmados.push(interaction.user.id);
+
+      if (partida.confirmados.length < 2) {
+        const msg = await interaction.channel.messages.fetch(partida.mensagemId).catch(() => null);
+        if (msg) await msg.edit({ embeds: [buildPainelEmbed("aguardando")], components: [buildBotoes()] }).catch(() => {});
+        await interaction.reply({ embeds: [new EmbedBuilder().setColor("#00cc66").setDescription(`⚡ **<@${interaction.user.id}> confirmou!** Aguardando o outro jogador...`)] });
+        return;
+      }
+
+      const msgOriginal = await interaction.channel.messages.fetch(partida.mensagemId).catch(() => null);
+      if (msgOriginal) await msgOriginal.delete().catch(() => {});
+
+      await interaction.reply({ embeds: [new EmbedBuilder().setColor("#00cc66").setDescription(`⚡ **<@${interaction.user.id}> confirmou!** Ambos prontos — aguardando um ADM assumir.`)] });
+
+      const embedAguardando = new EmbedBuilder()
+        .setColor("#ff6600").setTitle("⏳ Aguardando ADM").setThumbnail(LOGO)
+        .setDescription("Ambos os jogadores confirmaram! Um administrador precisa assumir esta fila.")
+        .addFields(
+          { name: "⚔️ Confronto", value: `<@${partida.p1}> vs <@${partida.p2}>`, inline: false },
+          { name: "💰 Valor", value: `R$ ${partida.valor}`, inline: true },
+          { name: "🎮 Modo", value: partida.modoNome, inline: true }
+        )
+        .setFooter({ text: "Org Rage • Sistema de partidas • Apenas ADMs podem assumir" });
+
+      const rowAsumir = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("assumir_fila").setLabel("✋ Assumir Fila").setStyle(ButtonStyle.Primary)
+      );
+
+      const msgAguardando = await interaction.channel.send({ embeds: [embedAguardando], components: [rowAsumir] }).catch(() => null);
+      if (msgAguardando) partida.mensagemAguardandoId = msgAguardando.id;
+      return;
+    }
+
+    if (id === "assumir_fila") {
+      if (!isAdmin) return interaction.reply({ content: "❌ Apenas administradores podem assumir a fila.", ephemeral: true });
+      const pix = pixAdmins[interaction.user.id];
+      if (!pix) return interaction.reply({ content: "❌ Você ainda não definiu seu PIX. Use: `!setpix CHAVE QR_CODE`", ephemeral: true });
+
+      partida.adminId = interaction.user.id;
+
+      if (partida.mensagemAguardandoId) {
+        const msgAguardando = await interaction.channel.messages.fetch(partida.mensagemAguardandoId).catch(() => null);
+        if (msgAguardando) await msgAguardando.delete().catch(() => {});
+        partida.mensagemAguardandoId = null;
+      }
+
+      let valorNumero = parseFloat(partida.valor.replace(",", "."));
+      let taxa = valorNumero <= 10 ? 0.2 : valorNumero * 0.02;
+      let total = (valorNumero + taxa).toFixed(2).replace(".", ",");
+
+      const embedPagamento = new EmbedBuilder()
+        .setColor("#00ff99").setTitle("💰 CHAVE PIX LIBERADA").setThumbnail(LOGO)
+        .addFields(
+          { name: "🎰 Valor da aposta", value: `R$ ${partida.valor}`, inline: true },
+          { name: "📊 Taxa", value: `R$ ${taxa.toFixed(2).replace(".", ",")}`, inline: true },
+          { name: "💵 Total a pagar", value: `R$ ${total}`, inline: false },
+          { name: "🔑 Chave PIX", value: `\`${pix.chave}\``, inline: false }
+        )
+        .setImage(`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(pix.qr)}`)
+        .setFooter({ text: "Org Rage • Sistema de partidas" });
+
+      const rowFinalizar = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId("finalizar").setLabel("🔒 Finalizar partida").setStyle(ButtonStyle.Danger)
+      );
+
+      await interaction.update({ embeds: [embedPagamento], components: [rowFinalizar] }).catch(async () => {
+        await interaction.reply({ embeds: [embedPagamento], components: [rowFinalizar] }).catch(() => {});
+      });
+      return;
+    }
+
+    if (id === "finalizar") {
+      if (!isAdmin) return interaction.reply({ content: "❌ Apenas administradores podem finalizar a partida.", ephemeral: true });
+      if (partida.adminId && interaction.user.id !== partida.adminId)
+        return interaction.reply({ content: `❌ Apenas <@${partida.adminId}> (que assumiu a fila) pode finalizar esta partida.`, ephemeral: true });
+
+      await interaction.reply({ embeds: [new EmbedBuilder().setColor("#ff0000").setTitle("🔒 PARTIDA FINALIZADA").setThumbnail(LOGO).setDescription("A sala será fechada em **3 segundos**.")] }).catch(() => {});
+      delete partidas[interaction.channel.id];
+      setTimeout(() => { interaction.channel.delete().catch(() => {}); }, 3000);
+      return;
+    }
+
+    if (id === "cancelar") {
+      if (!isJogador && !isAdmin) return interaction.reply({ content: "❌ Apenas jogadores ou ADM podem cancelar.", ephemeral: true });
+      const msg = await interaction.channel.messages.fetch(partida.mensagemId).catch(() => null);
+      if (msg) await msg.edit({ embeds: [buildPainelEmbed("cancelada")], components: [] }).catch(() => {});
+      await interaction.reply({ content: "❌ Partida cancelada. A sala fecha em **5 segundos**." });
+      delete partidas[interaction.channel.id];
+      setTimeout(() => { interaction.channel.delete().catch(() => {}); }, 5000);
+      return;
+    }
+
+    return;
+  }
+
+  // ══ RAGE — queue buttons ══
+  let partes = id.split("_");
+  let tipo = partes[0];
+  let valor = partes[partes.length - 1];
+  let modo = partes.slice(1, partes.length - 1).join("_");
+  let modoNome = modo;
+
+  if (modo === "1x1")       modoNome = "1x1 Mobile";
+  if (modo === "2x2")       modoNome = "2x2 Mobile";
+  if (modo === "3x3")       modoNome = "3x3 Mobile";
+  if (modo === "4x4")       modoNome = "4x4 Mobile";
+  if (modo === "2x2_misto") modoNome = "2x2 Misto";
+  if (modo === "3x3_misto") modoNome = "3x3 Misto";
+  if (modo === "4x4_misto") modoNome = "4x4 Misto";
+  if (modo === "1x1_emu")   modoNome = "1x1 Emulador";
+  if (modo === "2x2_emu")   modoNome = "2x2 Emulador";
+  if (modo === "3x3_emu")   modoNome = "3x3 Emulador";
+  if (modo === "4x4_emu")   modoNome = "4x4 Emulador";
+
+  if (tipo === "emu1" || tipo === "emu2" || tipo === "emu3") tipo = "entrar";
+  if (tipo === "normal" || tipo === "infinito") tipo = "entrar";
+
+  const user = interaction.user.id;
+
+  if (!filas[modo]) filas[modo] = {};
+  if (!filas[modo][valor]) filas[modo][valor] = { normal: [], infinito: [], emu1: [], emu2: [], emu3: [] };
+
+  let tipoFila = "normal";
+  if (id.startsWith("infinito")) tipoFila = "infinito";
+  if (id.startsWith("normal"))   tipoFila = "normal";
+  if (id.startsWith("emu1"))     tipoFila = "emu1";
+  if (id.startsWith("emu2"))     tipoFila = "emu2";
+  if (id.startsWith("emu3"))     tipoFila = "emu3";
+
+  if (!filas[modo][valor][tipoFila]) filas[modo][valor][tipoFila] = [];
+
+  if (tipo === "entrar") {
+    if (!filas[modo][valor][tipoFila].includes(user)) filas[modo][valor][tipoFila].push(user);
+  }
+  if (tipo === "sair") {
+    for (let t in filas[modo][valor]) {
+      filas[modo][valor][t] = filas[modo][valor][t].filter((uid) => uid !== user);
+    }
+  }
+
+  let jogadoresFila = [];
+  for (let t in filas[modo][valor]) {
+    const filaAtual = filas[modo][valor][t];
+    if (filaAtual.length >= 2 && filaAtual[0] !== filaAtual[1]) {
+      jogadoresFila = [filaAtual[0], filaAtual[1]];
+      filas[modo][valor][t] = filaAtual.slice(2);
+      break;
+    }
+  }
+
+  if (jogadoresFila.length === 2) {
+    const guild = interaction.guild;
+    const p1 = guild.members.cache.get(jogadoresFila[0]);
+    const p2 = guild.members.cache.get(jogadoresFila[1]);
+
+    const canal = await guild.channels.create({
+      name: `partida-${modo}-${valor}`,
+      type: ChannelType.GuildText,
+      parent: RAGE_CATEGORIA,
+      permissionOverwrites: [
+        { id: guild.roles.everyone, deny: [PermissionsBitField.Flags.ViewChannel] },
+        { id: p1.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+        { id: p2.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] },
+      ],
+    });
+
+    const embedPartida = new EmbedBuilder()
+      .setColor("#ff6600").setTitle(`🔥 ${modoNome} — R$ ${valor}`).setThumbnail(LOGO)
+      .addFields(
+        { name: "⚔️ Confronto", value: `<@${p1.id}>\n<@${p2.id}>`, inline: false },
+        { name: "💰 Valor", value: `R$ ${valor}`, inline: true },
+        { name: "🎮 Modo", value: modoNome, inline: true }
+      )
+      .setFooter({ text: "Org Rage • Sistema de partidas" });
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId("confirmar").setLabel("✅ Confirmar").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId("cancelar").setLabel("❌ Cancelar").setStyle(ButtonStyle.Danger)
+    );
+
+    const msg = await canal.send({ content: `${p1} ${p2}`, embeds: [embedPartida], components: [row] });
+
+    partidas[canal.id] = {
+      p1: p1.id, p2: p2.id,
+      p1Nome: p1.displayName, p2Nome: p2.displayName,
+      modo, modoNome, valor,
+      confirmados: [], adminId: null,
+      mensagemId: msg.id, mensagemAguardandoId: null,
+    };
+  }
+
+  const modosComLabel = ["1x1", "1x1_emu", "2x2_misto", "3x3_misto", "4x4_misto"];
+  const mostrarLabel = modosComLabel.includes(modo);
+
+  let listaArray = [];
+  for (let t in filas[modo][valor]) {
+    for (let uid of filas[modo][valor][t]) {
+      if (mostrarLabel) {
+        let label = t;
+        if (t === "emu1")     label = "1 EMU";
+        if (t === "emu2")     label = "2 EMU";
+        if (t === "emu3")     label = "3 EMU";
+        if (t === "normal")   label = "Gel Normal";
+        if (t === "infinito") label = "Gel Infinito";
+        listaArray.push(`<@${uid}> | ${label}`);
+      } else {
+        listaArray.push(`<@${uid}>`);
+      }
+    }
+  }
+
+  const embedFila = new EmbedBuilder()
+    .setColor("#ff0000").setTitle("🐺 JOGUE NA ORG RAGE").setThumbnail(LOGO)
+    .setDescription(`💎 **${modoNome} | 👑 BORA LUCRAR??**`)
+    .addFields(
+      { name: "🎮 Modo:", value: `${modoNome}`, inline: false },
+      { name: "💰 Valor:", value: `R$${valor}`, inline: false },
+      { name: "👤 Jogadores:", value: listaArray.length ? listaArray.join("\n") : "Ninguém", inline: false }
+    )
+    .setImage(
+      "https://cdn.discordapp.com/attachments/1329181663824969779/1482872836069527815/ChatGPT_Image_15_de_mar._de_2026_19_45_05.png?ex=69b88872&is=69b736f2&hm=6e9382d0747453dcab364fd0261aeb045e6b546f8e3b9e553c90b0f25a9b39c3&"
+    );
+
+  let rowFila;
+
+  if (modo === "1x1" || modo === "1x1_emu") {
+    rowFila = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`normal_${modo}_${valor}`).setLabel("Gel Normal").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`infinito_${modo}_${valor}`).setLabel("Gel Infinito").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+    );
+  } else if (modo === "2x2_misto") {
+    rowFila = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+    );
+  } else if (modo === "3x3_misto") {
+    rowFila = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`emu2_${modo}_${valor}`).setLabel("🖥️ 2 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+    );
+  } else if (modo === "4x4_misto") {
+    rowFila = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`emu1_${modo}_${valor}`).setLabel("🖥️ 1 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`emu2_${modo}_${valor}`).setLabel("🖥️ 2 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`emu3_${modo}_${valor}`).setLabel("🖥️ 3 EMU").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+    );
+  } else {
+    rowFila = new ActionRowBuilder().addComponents(
+      new ButtonBuilder().setCustomId(`entrar_${modo}_${valor}`).setLabel("Entrar na fila").setStyle(ButtonStyle.Success),
+      new ButtonBuilder().setCustomId(`sair_${modo}_${valor}`).setLabel("Sair da fila").setStyle(ButtonStyle.Danger)
+    );
+  }
+
+  await interaction.update({ embeds: [embedFila], components: [rowFila] }).catch(async () => {
+    await interaction.reply({ embeds: [embedFila], components: [rowFila] }).catch(() => {});
+  });
+});
+
+client.login("SEU_TOKEN")
